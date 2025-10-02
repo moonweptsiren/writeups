@@ -1,6 +1,17 @@
-upon receiving the target's IP address, i ran an nmap scan:
+# CTF Writeup: TryHackMe - Blog [medium]
+
+## Reconnaissance
+
+Upon receiving the target's IP address, I ran an **nmap** scan:
+
+```bash
+nmap -sV -sC -Pn 10.10.67.243
+```
+
+_Output:_
 
 ```
+
 nmap -sV -sC -Pn 10.10.67.243
 Starting Nmap 7.95 ( https://nmap.org ) at 2025-10-02 13:34 IDT
 Nmap scan report for 10.10.67.243
@@ -47,83 +58,108 @@ Service detection performed. Please report any incorrect results at https://nmap
 Nmap done: 1 IP address (1 host up) scanned in 16.08 seconds
 ```
 
-note - you need to add "blog.thm" to your /etc/hosts in order to access the webpage.
+  
+Note: you need to add `blog.thm` to your `/etc/hosts` file in order to access the webpage.
 
-i went straight to /wp-login.php to see if i can find a registered user, but after trying many (admin, Administrator, root, joel, etc...) none seemed to be successful.
+---
 
-i went back to the blog website itself, and after some enumeration i found a correct username in the url:
+## Enumeration
 
-<img width="890" height="491" alt="image" src="https://github.com/user-attachments/assets/bd9ce173-55f2-47e6-a1cf-b80298831e23" />
+I first tried going directly to `/wp-login.php` to see if I could identify a registered user. After testing common usernames (admin, Administrator, root, joel, etc.), none were successful.
 
-notice in the url, the author name is bjoel. 
+Exploring the blog further, I eventually found a valid username in the URL:
 
-back in the login page, i tried entering bjoel as the username and test as the password, and bjoel is indeed a registered user:
+![Author in URL](https://github.com/user-attachments/assets/bd9ce173-55f2-47e6-a1cf-b80298831e23)
 
-<img width="532" height="577" alt="image" src="https://github.com/user-attachments/assets/46998a61-edfe-4d7e-abf0-02a648155105" />
+The author name was **bjoel**.  
 
-now, i tried running hydra to try and find bjoel's password:
+Back on the login page, I tested `bjoel:test` and confirmed that **bjoel** was indeed a registered user:
 
-```
+![Login Attempt](https://github.com/user-attachments/assets/46998a61-edfe-4d7e-abf0-02a648155105)
+
+---
+
+## Password Attacks
+
+I attempted a brute-force attack with Hydra:
+
+```bash
 hydra -l bjoel -P /usr/share/wordlists/rockyou.txt 10.10.67.243 http-post-form "/wp-login.php:log=^USER^&pwd=^PWD^:S=Location\:.*/wp-admin/"
 ```
 
-(essentially, if a password directs you to /wp-admin, it's the correct one). but after some time i realized maybe it's not as easy as running an hydra brute force attack.
+This approach didn’t work as expected, so I switched to **wpscan**.  
 
-next thing i did is i ran an wpscan to see if i can find anything useful:
+Running wpscan revealed:  
+- The site theme: `twentytwenty`  
+- Another username: **kwheel**  
+- WordPress version: **5.0** (already answering two CTF questions)
 
-found that the theme used is twentytwenty, also found billy's mom username, which is kwheel.
+I also learned wpscan can handle brute force itself:
 
-after further research, i found two things:
-1. the version of wordpress used is 5.0 (already answers two of the questions for this challange)
-2. you can actually brute-force the login using wpscan itself, using the following command:
-
-```
+```bash
 wpscan --url http://blog.thm/wp-login.php -U kwheel,bjoel -P /usr/share/wordlists/rockyou.txt
 ```
 
-after a while, wpscan returned the password for kwheel, and i has access to the wp-admin dashboard. but since kwheel is a regular user, i didn't find anything useful through her interface.
+Eventually, wpscan cracked **kwheel**’s password, granting me access to the WordPress dashboard. Unfortunately, kwheel was a regular user, offering no direct path forward.
 
-i researched a bit, and found that wordpress 5.0 is vulnerable to path traversel and local file inclusion (reference: https://www.rapid7.com/db/modules/exploit/multi/http/wp_crop_rce)
-so following what is written in rapid7, i ran msfconsole using the `exploit/multi/http/wp_crop_rce` module.
-setting the required options:
+---
 
-<img width="948" height="667" alt="image" src="https://github.com/user-attachments/assets/8b0c666a-622f-4e29-a9c2-bae7e754f375" />
+## Exploitation
 
-(dont forget to change lhost to your vpn ip!!)
+Research showed that WordPress 5.0 is vulnerable to **Path Traversal / Local File Inclusion**, via `wp_crop_rce`. (Reference: [Rapid7 Module](https://www.rapid7.com/db/modules/exploit/multi/http/wp_crop_rce))
 
-ran the exploit, and was succesfully able to get a meterpeter shell:
+I used Metasploit with the module `exploit/multi/http/wp_crop_rce`:
 
-<img width="286" height="121" alt="image" src="https://github.com/user-attachments/assets/994f6656-1b33-431b-8416-173b3ba43c51" />
+![Metasploit Config](https://github.com/user-attachments/assets/8b0c666a-622f-4e29-a9c2-bae7e754f375)
 
-upgraded the shell using `python -c 'import pty; pty.spawn("/bin/bash")'`, and tried to find user.txt:
+_Reminder: update LHOST to your VPN IP!_  
 
-<img width="573" height="153" alt="image" src="https://github.com/user-attachments/assets/6c5311ea-eeff-4142-b6c6-d58fbfbb2299" />
+Running the exploit landed me a **Meterpreter shell**:
 
-hah! cute. lets try a different approach.
+![Meterpreter](https://github.com/user-attachments/assets/994f6656-1b33-431b-8416-173b3ba43c51)
 
-i changed directory to /home/bjoel to see if there was anything else there, and found a file called `Billy_Joel_Termination_May20-2020.pdf`. i decided to scp it to my kali machine.
+I upgraded the shell with:
 
+```bash
+python -c 'import pty; pty.spawn("/bin/bash")'
+```
 
-<img width="1250" height="1034" alt="image" src="https://github.com/user-attachments/assets/9e897803-b10e-471c-9b93-6efdfa9b9d40" />
+Then I searched for `user.txt`:
 
-i dont think there's anything useful here.
+![User Flag Attempt](https://github.com/user-attachments/assets/6c5311ea-eeff-4142-b6c6-d58fbfbb2299)
 
-well, let's try to priv esc. maybe the user.txt flag is readable only by the root user.
+Cute troll. Time for another approach.
 
-<img width="539" height="440" alt="image" src="https://github.com/user-attachments/assets/f77da03a-fea2-46dc-bf60-57496bf30a3c" />
+---
 
+## Post-Exploitation & Privilege Escalation
 
-checker looks interesting. let's see what it does.
+I navigated to `/home/bjoel` and found a file: **Billy_Joel_Termination_May20-2020.pdf**.  
+I copied it via SCP to my Kali machine:
 
-<img width="513" height="113" alt="image" src="https://github.com/user-attachments/assets/2d432192-9256-4b0c-bfba-ea9075657820" />
+![PDF Copy](https://github.com/user-attachments/assets/9e897803-b10e-471c-9b93-6efdfa9b9d40)
 
-not an admin, huh? perhaps there's a bit we can change for the admin variable.
+The PDF wasn’t useful, so I looked into privilege escalation. I noticed a binary called **checker**:
 
-<img width="502" height="100" alt="image" src="https://github.com/user-attachments/assets/b7581b54-f742-4cc5-867a-b66c37c5f1ea" />
+![Checker Binary](https://github.com/user-attachments/assets/f77da03a-fea2-46dc-bf60-57496bf30a3c)
 
-and i was correct. now we have root privileges. lets try to find the flags again:
+Running it hinted at an `admin` variable check:
 
-<img width="508" height="131" alt="image" src="https://github.com/user-attachments/assets/a97af2b9-b49b-4028-8be7-088b1c21c2dd" />
+![Checker Output](https://github.com/user-attachments/assets/2d432192-9256-4b0c-bfba-ea9075657820)
 
-and it was as i suspected, the actual user.txt file is only readable for the root user.
-there you go, we got the flags we needed.
+I modified the variable, and—success! Root access obtained:
+
+![Root Access](https://github.com/user-attachments/assets/b7581b54-f742-4cc5-867a-b66c37c5f1ea)
+
+---
+
+## Root & Flags
+
+With root privileges, I finally accessed the flags:
+
+![Flags](https://github.com/user-attachments/assets/a97af2b9-b49b-4028-8be7-088b1c21c2dd)
+
+As suspected, the actual `user.txt` flag was only readable by root.  
+
+✅ **Challenge Complete!**
+
